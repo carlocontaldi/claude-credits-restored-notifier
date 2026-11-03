@@ -120,8 +120,7 @@ def sleep_until(t):
 
 
 def read_setting(name):
-    with open(os.path.join(DIR, name)) as f:
-        return f.read().strip()
+    return os.environ[f'CLAUDE_PLUGIN_OPTION_{name.upper()}'].strip()
 
 
 def push(window):

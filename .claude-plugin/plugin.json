@@ -1,1 +1,30 @@
-{ "name": "credits-restored-notifier", "version": "0.1.0", "description": "Sends a push and an email when a Claude Code usage limit resets.", "license": "MIT" }
+{
+  "name": "credits-restored-notifier",
+  "version": "0.2.0",
+  "description": "Sends a push and an email when a Claude Code usage limit resets.",
+  "author": { "name": "Carlo Contaldi" },
+  "license": "MIT",
+  "icon": "./.claude-plugin/icon.png",
+  "userConfig": {
+    "ntfy_topic": {
+      "type": "string",
+      "title": "ntfy topic",
+      "description": "A hard-to-guess topic name; on the public server anyone who knows it can read and publish.",
+      "required": true,
+      "sensitive": true
+    },
+    "notify_email": {
+      "type": "string",
+      "title": "Notification email",
+      "description": "Where ntfy sends the limit-restored email.",
+      "required": true
+    },
+    "ntfy_token": {
+      "type": "string",
+      "title": "ntfy access token",
+      "description": "Your ntfy.sh access token; ntfy.sh refuses emails from anonymous requests.",
+      "required": true,
+      "sensitive": true
+    }
+  }
+}

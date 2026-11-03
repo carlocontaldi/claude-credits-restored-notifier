@@ -4,6 +4,8 @@ Claude Code stops when a session, weekly or org spend limit is hit. This plugin 
 
 How it works: a `StopFailure` hook (matcher `rate_limit`) hands the event to a detached watcher and returns at once. The watcher reads the `resets ... (zone)` time from the limit error at the end of the transcript, sleeps until reset + 60 s, then POSTs to `ntfy.sh/<topic>`. One watcher runs per reset time. A limit message with no reset time is only logged.
 
+What leaves your machine: one HTTPS request to ntfy.sh (or to the server in `LIMIT_WATCH_NTFY_URL`) carrying the topic, your email address, your token and the text "Your session limit has reset. You can continue." Nothing else is sent.
+
 ## Requirements
 
 - Linux (the script uses `/proc`) and Python 3.9 or newer, standard library only.
@@ -27,13 +29,13 @@ If `~/.claude/settings.json` already registers `limit_restore_notify.py` under `
 
 ## Configure
 
-Three files in `~/.claude/limit-watch/` (set `LIMIT_WATCH_DIR` to use another folder), each holding one value, mode 600. They are never part of this repo.
+Claude Code asks for three values when you enable the plugin and hands them to the hook as environment variables. The topic and the token are kept in the system's secure credential store, not in `settings.json`.
 
-| File | Value |
+| Value | Meaning |
 |---|---|
-| `ntfy_topic` | A hard-to-guess topic name; on the public server anyone who knows it can read and publish. |
-| `notify_email` | Where ntfy sends the email. |
-| `ntfy_token` | Your ntfy access token. |
+| ntfy topic | A hard-to-guess topic name; on the public server anyone who knows it can read and publish. |
+| Notification email | Where ntfy sends the email. |
+| ntfy access token | Your ntfy access token. |
 
 Subscribe to the topic in the ntfy app if you also want the phone push.
 
@@ -41,7 +43,7 @@ Generate a topic with `python3 -c 'import secrets; print(secrets.token_urlsafe(2
 
 ## Check it
 
-`~/.claude/limit-watch/log.txt` records each limit seen (`weekly limit; will push at ...`), each push (`pushed (attempt 1)`), and failures. Missing config files show up there as `FileNotFoundError`. To test against a local server, set `LIMIT_WATCH_NTFY_URL`.
+`~/.claude/limit-watch/log.txt` records each limit seen (`weekly limit; will push at ...`), each push (`pushed (attempt 1)`), and failures. A value you left unset shows up there as `KeyError: 'CLAUDE_PLUGIN_OPTION_...'`. The folder is `~/.claude/limit-watch/`; set `LIMIT_WATCH_DIR` to use another. To test against a local server, set `LIMIT_WATCH_NTFY_URL`.
 
 The zone in the limit message is the IANA zone of the machine running Claude Code, so each machine needs its own copy of the hook and config. A hook only fires for sessions on the machine where it is installed.
 
