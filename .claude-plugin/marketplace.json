@@ -1,0 +1,5 @@
+{
+  "name": "claude-called",
+  "owner": { "name": "carlocontaldi" },
+  "plugins": [{ "name": "credits-restored", "source": "./" }]
+}
