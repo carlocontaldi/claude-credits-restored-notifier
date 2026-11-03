@@ -37,13 +37,15 @@ Claude Code asks for three values when you enable the plugin and hands them to t
 | Notification email | Where ntfy sends the email. |
 | ntfy access token | Your ntfy access token. |
 
+Versions before 0.2.0 read these three values from files in `~/.claude/limit-watch/`; those files are now ignored, so enter the values when prompted.
+
 Subscribe to the topic in the ntfy app if you also want the phone push.
 
 Generate a topic with `python3 -c 'import secrets; print(secrets.token_urlsafe(24))'`.
 
 ## Check it
 
-`~/.claude/limit-watch/log.txt` records each limit seen (`weekly limit; will push at ...`), each push (`pushed (attempt 1)`), and failures. A value you left unset shows up there as `KeyError: 'CLAUDE_PLUGIN_OPTION_...'`. The folder is `~/.claude/limit-watch/`; set `LIMIT_WATCH_DIR` to use another. To test against a local server, set `LIMIT_WATCH_NTFY_URL`.
+`~/.claude/limit-watch/log.txt` records each limit seen (`weekly limit; will push at ...`), each push (`pushed (attempt 1)`), and failures. A value you left unset or empty shows up there as `missing plugin options: ...`, and no push is sent. The folder is `~/.claude/limit-watch/`; set `LIMIT_WATCH_DIR` to use another. To test against a local server, set `LIMIT_WATCH_NTFY_URL`.
 
 The zone in the limit message is the IANA zone of the machine running Claude Code, so each machine needs its own copy of the hook and config. A hook only fires for sessions on the machine where it is installed.
 

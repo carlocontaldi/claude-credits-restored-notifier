@@ -119,19 +119,20 @@ def sleep_until(t):
         time.sleep(min(left, 60))  # re-check the wall clock so a clock jump cannot oversleep
 
 
-def read_setting(name):
-    return os.environ[f'CLAUDE_PLUGIN_OPTION_{name.upper()}'].strip()
+def read_settings():
+    names = ('ntfy_topic', 'notify_email', 'ntfy_token')
+    return {n: os.environ.get(f'CLAUDE_PLUGIN_OPTION_{n.upper()}', '').strip() for n in names}
 
 
-def push(window):
+def push(window, settings):
     req = urllib.request.Request(
-        NTFY_URL + read_setting('ntfy_topic'),
+        NTFY_URL + settings['ntfy_topic'],
         data=f'Your {window} limit has reset. You can continue.'.encode(),
         headers={
             'Title': 'Claude limit restored',
             'Tags': 'white_check_mark',
-            'Email': read_setting('notify_email'),
-            'Authorization': f"Bearer {read_setting('ntfy_token')}",  # ntfy.sh refuses anonymous email
+            'Email': settings['notify_email'],
+            'Authorization': f"Bearer {settings['ntfy_token']}",  # ntfy.sh refuses anonymous email
         },
     )
     for attempt in range(1, 4):
@@ -146,6 +147,10 @@ def push(window):
 
 
 def watch(payload):
+    settings = read_settings()
+    if missing := [n for n, v in settings.items() if not v]:  # fail now, not after sleeping until the reset
+        log(f"missing plugin options: {', '.join(missing)}")
+        return
     hit = None
     for _ in range(LOOKUP_TRIES):
         hit = last_limit_error(payload.get('transcript_path'))
@@ -170,7 +175,7 @@ def watch(payload):
     try:
         log(f'{window} limit; will push at {reset + MARGIN:%Y-%m-%d %H:%M:%S}Z')
         sleep_until(reset + MARGIN)
-        push(window)
+        push(window, settings)
     finally:
         try:
             os.unlink(marker)
