@@ -1,5 +1,6 @@
 {
   "name": "claude-credits-restored-notifier",
   "owner": { "name": "Carlo Contaldi" },
+  "metadata": { "description": "A Claude Code hook that sends a push and an email when a usage limit resets." },
   "plugins": [{ "name": "credits-restored-notifier", "source": "./" }]
 }
