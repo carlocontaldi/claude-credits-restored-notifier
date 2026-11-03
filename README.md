@@ -14,13 +14,13 @@ How it works: a `StopFailure` hook (matcher `rate_limit`) hands the event to a d
 At the prompt of a terminal session:
 
 ```
-/plugin install credits-restored-claude-notifier --marketplace carlocontaldi/credits-restored-claude-notifier
+/plugin install credits-restored-notifier --marketplace carlocontaldi/credits-restored-claude-notifier
 ```
 
 From a shell:
 
 ```
-claude plugin install credits-restored-claude-notifier --marketplace carlocontaldi/credits-restored-claude-notifier
+claude plugin install credits-restored-notifier --marketplace carlocontaldi/credits-restored-claude-notifier
 ```
 
 If `~/.claude/settings.json` already registers `limit_restore_notify.py` under `hooks.StopFailure`, remove that entry so the hook is not registered twice.

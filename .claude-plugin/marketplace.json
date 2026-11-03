@@ -1,5 +1,5 @@
 {
   "name": "credits-restored-claude-notifier",
   "owner": { "name": "Carlo Contaldi" },
-  "plugins": [{ "name": "credits-restored-claude-notifier", "source": "./" }]
+  "plugins": [{ "name": "credits-restored-notifier", "source": "./" }]
 }
