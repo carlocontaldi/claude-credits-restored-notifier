@@ -1,4 +1,4 @@
-# Claude Called
+# Credits Restored Claude Notifier
 
 Claude Code stops when a session, weekly or org spend limit is hit. This plugin watches the clock for you: it sends a push, and an email through ntfy, a minute after the limit resets, with no terminal or Claude session left open.
 
@@ -14,13 +14,13 @@ How it works: a `StopFailure` hook (matcher `rate_limit`) hands the event to a d
 At the prompt of a terminal session:
 
 ```
-/plugin install credits-restored --marketplace carlocontaldi/claude-called
+/plugin install credits-restored-claude-notifier --marketplace carlocontaldi/credits-restored-claude-notifier
 ```
 
 From a shell:
 
 ```
-claude plugin install credits-restored --marketplace carlocontaldi/claude-called
+claude plugin install credits-restored-claude-notifier --marketplace carlocontaldi/credits-restored-claude-notifier
 ```
 
 If `~/.claude/settings.json` already registers `limit_restore_notify.py` under `hooks.StopFailure`, remove that entry so the hook is not registered twice.
@@ -44,3 +44,7 @@ Generate a topic with `python3 -c 'import secrets; print(secrets.token_urlsafe(2
 `~/.claude/limit-watch/log.txt` records each limit seen (`weekly limit; will push at ...`), each push (`pushed (attempt 1)`), and failures. Missing config files show up there as `FileNotFoundError`. To test against a local server, set `LIMIT_WATCH_NTFY_URL`.
 
 The zone in the limit message is the IANA zone of the machine running Claude Code, so each machine needs its own copy of the hook and config. A hook only fires for sessions on the machine where it is installed.
+
+## License
+
+[MIT](LICENSE)
