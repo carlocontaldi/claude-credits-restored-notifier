@@ -12,6 +12,8 @@ import subprocess
 import sys
 import time
 import traceback
+import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -31,7 +33,8 @@ WINDOW = re.compile(r'(session|weekly) limit')
 
 
 def log(msg):
-    with open(os.path.join(DIR, 'log.txt'), 'a') as f:
+    fd = os.open(os.path.join(DIR, 'log.txt'), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    with os.fdopen(fd, 'a') as f:
         f.write(f'{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S}Z {msg}\n')
 
 
@@ -124,9 +127,21 @@ def read_settings():
     return {n: os.environ.get(f'CLAUDE_PLUGIN_OPTION_{n.upper()}', '').strip() for n in names}
 
 
+def is_retryable(error):
+    """Network trouble, 429 and 5xx can pass; a bad URL or header, or any other 4xx, will not."""
+    if isinstance(error, urllib.error.HTTPError):
+        return error.code >= 500 or error.code == 429
+    return isinstance(error, OSError)
+
+
+def describe(error):
+    """Class (and HTTP status) only: an error message can quote the topic or the token."""
+    return f'HTTP {error.code}' if isinstance(error, urllib.error.HTTPError) else type(error).__name__
+
+
 def push(window, settings):
     req = urllib.request.Request(
-        NTFY_URL + settings['ntfy_topic'],
+        NTFY_URL + urllib.parse.quote(settings['ntfy_topic'], safe=''),
         data=f'Your {window} limit has reset. You can continue.'.encode(),
         headers={
             'Title': 'Claude limit restored',
@@ -140,8 +155,10 @@ def push(window, settings):
             urllib.request.urlopen(req, timeout=15).read()
             log(f'pushed (attempt {attempt})')
             return
-        except Exception as e:  # network blips; the error text carries no topic
-            log(f'push failed (attempt {attempt}): {e!r}')
+        except Exception as e:
+            log(f'push failed (attempt {attempt}): {describe(e)}')
+            if not is_retryable(e):
+                break
             time.sleep(30)
     log('gave up pushing')
 
