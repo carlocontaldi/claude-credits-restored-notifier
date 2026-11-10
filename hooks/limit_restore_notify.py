@@ -5,6 +5,7 @@ The hook payload arrives on stdin. The foreground call hands it to a detached co
 script (--watch) and returns at once. The watcher reads the reset time from the limit error in
 the transcript, sleeps until then, and posts to ntfy, which also emails it. One watcher runs per reset time.
 """
+import fcntl
 import json
 import os
 import re
@@ -86,35 +87,29 @@ def last_limit_error(path):
     return None
 
 
-def holder_alive(marker):
-    try:
-        with open(marker) as f:
-            pid = int(f.read())
-        with open(f'/proc/{pid}/cmdline') as f:
-            return 'limit_restore_notify' in f.read()
-    except ValueError:  # the holder created the file but has not written its pid yet
-        return True
-    except OSError:  # no such process, or the marker is already gone
-        return False
-
-
 def claim(marker):
-    """Atomically take the marker for one reset time; False if a live watcher already holds it."""
-    for _ in range(2):
+    """Lock the marker for one reset time and return its fd; None if a live watcher holds it."""
+    while True:
+        fd = os.open(marker, os.O_CREAT | os.O_WRONLY, 0o600)
         try:
-            fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            if holder_alive(marker):
-                return False
-            try:
-                os.unlink(marker)  # left by a watcher that died
-            except FileNotFoundError:
-                pass
-            continue
-        with os.fdopen(fd, 'w') as f:
-            f.write(str(os.getpid()))
-        return True
-    return False
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            return None
+        try:
+            if os.fstat(fd).st_ino == os.stat(marker).st_ino:
+                return fd
+        except FileNotFoundError:
+            pass
+        os.close(fd)  # the previous holder deleted the file after we opened it; try again
+
+
+def release(fd, marker):
+    try:
+        os.unlink(marker)  # while still locked, so a waiting claim() sees the file gone
+    except OSError:
+        pass
+    os.close(fd)
 
 
 def sleep_until(t):
@@ -185,8 +180,9 @@ def watch(payload):
         return
     m = WINDOW.search(text)
     window = m.group(1) if m else 'usage'
-    marker = os.path.join(DIR, f'{int(reset.timestamp())}.pid')
-    if not claim(marker):
+    marker = os.path.join(DIR, f'{int(reset.timestamp())}.lock')
+    fd = claim(marker)
+    if fd is None:
         log(f'already watching the {reset:%Y-%m-%d %H:%M}Z reset')
         return
     try:
@@ -194,10 +190,7 @@ def watch(payload):
         sleep_until(reset + MARGIN)
         push(window, settings)
     finally:
-        try:
-            os.unlink(marker)
-        except OSError:
-            pass
+        release(fd, marker)
 
 
 def main():

@@ -193,5 +193,41 @@ class NtfyUrlTest(unittest.TestCase):
             self.assertEqual(notify.NTFY_URL, 'http://localhost:8080/')
 
 
+class ClaimTest(WithLogDir):
+    def setUp(self):
+        super().setUp()
+        self.marker = os.path.join(self.dir, '1900000000.lock')
+
+    def test_a_held_marker_cannot_be_claimed_again_until_released(self):
+        fd = notify.claim(self.marker)
+        self.assertIsNotNone(fd)
+        self.assertIsNone(notify.claim(self.marker))
+        notify.release(fd, self.marker)
+        self.assertFalse(os.path.exists(self.marker))
+        notify.release(notify.claim(self.marker), self.marker)
+
+    def test_a_marker_left_by_a_dead_watcher_is_taken_over(self):
+        Path(self.marker).write_text('999999')
+        fd = notify.claim(self.marker)
+        self.assertIsNotNone(fd)
+        notify.release(fd, self.marker)
+
+    def test_only_one_of_many_simultaneous_claims_over_a_stale_marker_wins(self):
+        Path(self.marker).write_text('999999')
+        barrier = threading.Barrier(8)
+        won = []
+
+        def contend():
+            barrier.wait()
+            won.append(notify.claim(self.marker))
+
+        threads = [threading.Thread(target=contend) for _ in range(8)]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        winners = [fd for fd in won if fd is not None]
+        self.assertEqual(len(winners), 1)
+        notify.release(winners[0], self.marker)
+
+
 if __name__ == '__main__':
     unittest.main()
