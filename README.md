@@ -2,9 +2,9 @@
 
 Claude Code stops when a session, weekly or org spend limit is hit. This plugin watches the clock for you: it sends a push, and an email through ntfy, a minute after the limit resets, with no terminal or Claude session left open.
 
-How it works: a `StopFailure` hook (matcher `rate_limit`) hands the event to a detached watcher and returns at once. The watcher reads the `resets ... (zone)` time from the limit error at the end of the transcript, sleeps until reset + 60 s, then POSTs to `ntfy.sh/<topic>`. One watcher runs per reset time. A limit message with no reset time is only logged.
+How it works: a `StopFailure` hook (matcher `rate_limit`) hands the event to a detached watcher and returns at once. The watcher reads the `resets ... (zone)` time from the limit error at the end of the transcript, sleeps until reset + 60 s, then POSTs to `ntfy.sh/<topic>`. One watcher runs per reset time. A limit message with no reset time is only logged. The watcher is an ordinary background process: it outlives the terminal and the Claude session, but not a reboot or shutdown, and a push that falls due while the machine is off is never sent.
 
-What leaves your machine: one HTTPS request to ntfy.sh (or to the server in `LIMIT_WATCH_NTFY_URL`) carrying the topic, your email address, your token and the text "Your session limit has reset. You can continue." Nothing else is sent.
+What leaves your machine: one HTTPS request to ntfy.sh (or to the server in `LIMIT_WATCH_NTFY_URL`). The topic is in the URL; your email address and token are in headers, next to a fixed title and tag; the body is one line, "Your session limit has reset. You can continue." (`weekly` or `usage` in place of `session` for the other limits). Nothing else is sent.
 
 ## Requirements
 
