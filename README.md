@@ -8,7 +8,7 @@ What leaves your machine: one HTTPS request to ntfy.sh (or to the server in `LIM
 
 ## Requirements
 
-- Linux (the script uses `/proc`) and Python 3.9 or newer, standard library only.
+- A POSIX system (the script uses `fcntl.flock`; only Linux is tested) and Python 3.9 or newer, standard library only.
 - An [ntfy.sh](https://ntfy.sh) account and access token. ntfy.sh refuses emails from anonymous requests (HTTP 400, code 40053 when last tried, 2026-10-20), and the free tier allowed 5 emails a day.
 
 ## Install
