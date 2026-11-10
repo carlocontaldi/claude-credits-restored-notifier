@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 
 # Both overridable so the whole path can be tested against a local server.
 DIR = os.environ.get('LIMIT_WATCH_DIR') or os.path.expanduser('~/.claude/limit-watch')
-NTFY_URL = os.environ.get('LIMIT_WATCH_NTFY_URL') or 'https://ntfy.sh/'
+NTFY_URL = (os.environ.get('LIMIT_WATCH_NTFY_URL') or 'https://ntfy.sh').rstrip('/') + '/'
 MARGIN = timedelta(seconds=60)  # pad past the stated time so the push never precedes the restore
 LOOKUP_TRIES = 10  # the limit error may not be in the transcript yet when the hook fires
 

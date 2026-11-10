@@ -1,4 +1,5 @@
 import http.server
+import importlib
 import json
 import os
 import sys
@@ -182,6 +183,14 @@ class LogTest(WithLogDir):
         self.addCleanup(os.umask, os.umask(0o022))
         notify.log('x')
         self.assertEqual(os.stat(os.path.join(self.dir, 'log.txt')).st_mode & 0o777, 0o600)
+
+
+class NtfyUrlTest(unittest.TestCase):
+    def test_a_base_url_without_a_trailing_slash_is_accepted(self):
+        self.addCleanup(importlib.reload, notify)
+        with mock.patch.dict(os.environ, {'LIMIT_WATCH_NTFY_URL': 'http://localhost:8080'}):
+            importlib.reload(notify)
+            self.assertEqual(notify.NTFY_URL, 'http://localhost:8080/')
 
 
 if __name__ == '__main__':
