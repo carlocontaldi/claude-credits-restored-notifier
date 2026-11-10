@@ -29,7 +29,7 @@ If `~/.claude/settings.json` already registers `limit_restore_notify.py` under `
 
 ## Configure
 
-Claude Code asks for three values when you enable the plugin and hands them to the hook as environment variables. The topic and the token are kept in the system's secure credential store, not in `settings.json`.
+Claude Code asks for three values when you enable the plugin and hands them to the hook as environment variables. The topic and the token are not written to `settings.json` (the email address is). Claude Code keeps them in its secure storage: the macOS Keychain, or a Secret Service keyring on Linux when one is available. Without one, typical on a headless server, it falls back to `~/.claude/.credentials.json`, a plaintext file readable only by you (behaviour of Claude Code 2.1.319).
 
 | Value | Meaning |
 |---|---|
