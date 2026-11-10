@@ -49,6 +49,12 @@ Generate a topic with `python3 -c 'import secrets; print(secrets.token_urlsafe(2
 
 The zone in the limit message is the IANA zone of the machine running Claude Code, so each machine needs its own copy of the hook and config. A hook only fires for sessions on the machine where it is installed.
 
+## Test
+
+```
+python3 -m unittest discover -s tests
+```
+
 ## License
 
 [MIT](LICENSE)
