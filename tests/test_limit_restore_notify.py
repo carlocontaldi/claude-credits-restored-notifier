@@ -177,6 +177,17 @@ class PushTest(WithLogDir):
         self.assertIn('ValueError', self.log_text())
         self.assertNotIn('abc', self.log_text())
 
+    def test_watch_pushes_once_and_removes_its_lock(self):
+        transcript = Path(self.dir, 'transcript.jsonl')
+        transcript.write_text(error_line("You've hit your weekly limit · resets 2pm (UTC)") + '\n')
+        env = {f'CLAUDE_PLUGIN_OPTION_{k.upper()}': v for k, v in SETTINGS.items()}
+        with mock.patch.dict(os.environ, env), mock.patch.object(notify, 'sleep_until'):
+            notify.watch({'transcript_path': str(transcript)})
+        [(path, _, body)] = self.server.requests
+        self.assertEqual(path, '/secret-topic')
+        self.assertIn(b'weekly', body)
+        self.assertEqual([name for name in os.listdir(self.dir) if name.endswith('.lock')], [])
+
 
 class LogTest(WithLogDir):
     def test_the_log_is_readable_by_its_owner_only(self):
