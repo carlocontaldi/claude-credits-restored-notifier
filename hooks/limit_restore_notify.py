@@ -6,6 +6,7 @@ script (--watch) and returns at once. The watcher reads the reset time from the 
 the transcript, sleeps until then, and posts to ntfy, which also emails it. One watcher runs per reset time.
 """
 import fcntl
+import http.client
 import json
 import os
 import re
@@ -122,11 +123,11 @@ def read_settings():
     return {n: os.environ.get(f'CLAUDE_PLUGIN_OPTION_{n.upper()}', '').strip() for n in names}
 
 
-def is_retryable(error):
-    """Network trouble, 429 and 5xx can pass; a bad URL or header, or any other 4xx, will not."""
+def is_permanent(error):
+    """A bad URL or header, or a 4xx other than 429, fails the same way every time."""
     if isinstance(error, urllib.error.HTTPError):
-        return error.code >= 500 or error.code == 429
-    return isinstance(error, OSError)
+        return 400 <= error.code < 500 and error.code != 429
+    return isinstance(error, (ValueError, http.client.InvalidURL))
 
 
 def describe(error):
@@ -152,7 +153,7 @@ def push(window, settings):
             return
         except Exception as e:
             log(f'push failed (attempt {attempt}): {describe(e)}')
-            if not is_retryable(e):
+            if is_permanent(e):
                 break
             time.sleep(30)
     log('gave up pushing')

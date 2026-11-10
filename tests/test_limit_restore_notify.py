@@ -1,7 +1,9 @@
+import fcntl
 import http.server
 import importlib
 import json
 import os
+import socket
 import sys
 import tempfile
 import threading
@@ -119,6 +121,11 @@ class Recorder(http.server.BaseHTTPRequestHandler):
         body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
         self.server.requests.append((self.path, dict(self.headers), body))
         self.send_response(self.server.status)
+        if self.server.truncate:
+            self.send_header('Content-Length', '10')
+            self.end_headers()
+            self.wfile.write(b'abc')
+            return
         self.end_headers()
 
     def log_message(self, *args):
@@ -132,7 +139,7 @@ class PushTest(WithLogDir):
     def setUp(self):
         super().setUp()
         self.server = http.server.HTTPServer(('127.0.0.1', 0), Recorder)
-        self.server.requests, self.server.status = [], 200
+        self.server.requests, self.server.status, self.server.truncate = [], 200, False
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
@@ -165,6 +172,25 @@ class PushTest(WithLogDir):
         notify.push('session', SETTINGS)
         self.assertEqual(len(self.server.requests), 3)
         self.assertIn('gave up pushing', self.log_text())
+
+    def test_too_many_requests_is_retried(self):
+        self.server.status = 429
+        notify.push('session', SETTINGS)
+        self.assertEqual(len(self.server.requests), 3)
+
+    def test_a_response_cut_off_mid_body_is_retried(self):
+        self.server.truncate = True
+        notify.push('session', SETTINGS)
+        self.assertEqual(len(self.server.requests), 3)
+        self.assertIn('IncompleteRead', self.log_text())
+
+    def test_a_refused_connection_is_retried(self):
+        with socket.socket() as probe:
+            probe.bind(('127.0.0.1', 0))
+            port = probe.getsockname()[1]
+        with mock.patch.object(notify, 'NTFY_URL', f'http://127.0.0.1:{port}/'):
+            notify.push('session', SETTINGS)
+        self.assertIn('push failed (attempt 3): URLError', self.log_text())
 
     def test_the_topic_is_url_quoted(self):
         notify.push('session', {**SETTINGS, 'ntfy_topic': 'my topic/x'})
@@ -221,6 +247,21 @@ class ClaimTest(WithLogDir):
         Path(self.marker).write_text('999999')
         fd = notify.claim(self.marker)
         self.assertIsNotNone(fd)
+        notify.release(fd, self.marker)
+
+    def test_a_marker_replaced_between_open_and_lock_is_not_claimed_by_its_old_inode(self):
+        real_flock, calls = fcntl.flock, []
+
+        def flock_after_a_release(fd, operation):
+            if not calls:
+                os.unlink(self.marker)
+                Path(self.marker).touch()
+            calls.append(operation)
+            return real_flock(fd, operation)
+
+        with mock.patch.object(fcntl, 'flock', flock_after_a_release):
+            fd = notify.claim(self.marker)
+        self.assertEqual(os.fstat(fd).st_ino, os.stat(self.marker).st_ino)
         notify.release(fd, self.marker)
 
     def test_only_one_of_many_simultaneous_claims_over_a_stale_marker_wins(self):
