@@ -9,8 +9,8 @@
     "ntfy_topic": {
       "type": "string",
       "title": "ntfy topic",
-      "description": "A hard-to-guess topic name; on the public server anyone who knows it can read and publish.",
-      "required": true,
+      "description": "Optional. Leave empty to push to a private topic Portavoce makes (claude-portavoce-<random>); run /portavoce topic to see it and subscribe the phone app. Set a name here to use your own.",
+      "required": false,
       "sensitive": true
     },
     "notify_email": {

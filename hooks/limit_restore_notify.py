@@ -1,201 +1,165 @@
 #!/usr/bin/env python3
-"""StopFailure hook: when a usage limit stops a turn, push a notification once it resets.
+"""StopFailure hook: when a usage limit stops a turn, push a notification as each cap it reports resets.
+A detached `--watch` copy reads the caps from the transcript, sleeps until each reset and posts to ntfy."""
 
-The hook payload arrives on stdin. The foreground call hands it to a detached copy of this
-script (--watch) and returns at once. The watcher reads the reset time from the limit error in
-the transcript, sleeps until then, and posts to ntfy, which also emails it. One watcher runs per reset time.
-"""
-import fcntl
-import http.client
 import json
 import os
-import re
 import subprocess
 import sys
-import time
 import traceback
-import urllib.error
-import urllib.parse
-import urllib.request
-from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime, timezone
+from pathlib import Path
+
+from limitwatch import (
+    CREDIT_KINDS,
+    MARGIN,
+    Cap,
+    claim,
+    describe_caps,
+    effective_topic,
+    format_reset,
+    lookup,
+    release,
+    sleep_until,
+    stored_topic,
+    subscribe_steps,
+)
+from limitwatch import push as ntfy_push
 
 # Both overridable so the whole path can be tested against a local server.
-DIR = os.environ.get('LIMIT_WATCH_DIR') or os.path.expanduser('~/.claude/limit-watch')
-NTFY_URL = (os.environ.get('LIMIT_WATCH_NTFY_URL') or 'https://ntfy.sh').rstrip('/') + '/'
-MARGIN = timedelta(seconds=60)  # pad past the stated time so the push never precedes the restore
+DIR = Path(os.environ.get('PORTAVOCE_DIR') or Path.home() / '.claude' / 'portavoce')
+NTFY_URL = (os.environ.get('PORTAVOCE_NTFY_URL') or 'https://ntfy.sh').rstrip('/') + '/'
+TOPIC_PREFIX = 'claude-portavoce'
 LOOKUP_TRIES = 10  # the limit error may not be in the transcript yet when the hook fires
-
-# The message states local time plus the IANA zone of the machine running Claude Code:
-# "You've hit your session limit · resets 2:20pm (UTC)", "... weekly limit · resets Oct 6, 3am (Europe/Lisbon)"
-# (with the year too when the reset falls in the next one), and for the org spend limit
-# "You've hit your org's monthly spend limit · ... · your session limit resets 7:10pm (UTC)"
-RESET = re.compile(r'resets (?:([A-Z][a-z]{2}) (\d{1,2}), (?:(\d{4}), )?)?(\d{1,2})(?::(\d{2}))?(am|pm) \(([\w/+-]+)\)')
-WINDOW = re.compile(r'(session|weekly) limit')
+GROUP = 120  # seconds: caps resetting this close together are announced in one push
 
 
 def log(msg):
-    fd = os.open(os.path.join(DIR, 'log.txt'), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    fd = os.open(DIR / 'log.txt', os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     with os.fdopen(fd, 'a') as f:
         f.write(f'{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S}Z {msg}\n')
 
 
-def parse_reset(text, at):
-    """Reset time stated in a limit message as UTC, or None if absent or in an unknown zone.
-    `at` is when the message was shown; a time without a date is the next such time after it."""
-    m = RESET.search(text)
-    if not m:
-        return None
-    mon, day, year, hh, mm, ap, tz = m.groups()
-    try:
-        zone = timezone.utc if tz == 'UTC' else ZoneInfo(tz)
-    except (KeyError, ValueError, OSError):
-        return None
-    now = at.astimezone(zone)
-    hour, minute = int(hh) % 12 + (12 if ap == 'pm' else 0), int(mm or 0)
-    if mon:
-        d = datetime.strptime(f'{year or now.year} {mon} {day}', '%Y %b %d').replace(hour=hour, minute=minute, tzinfo=zone)
-        if not year and d < now - timedelta(days=1):
-            d = d.replace(year=d.year + 1)
-    else:
-        d = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        if d <= now:
-            d += timedelta(days=1)
-    return d.astimezone(timezone.utc)
-
-
-def last_limit_error(path):
-    """(text, time) of the newest limit error in the transcript's tail, if logged in the last 5 minutes."""
-    try:
-        with open(path, 'rb') as f:
-            f.seek(0, os.SEEK_END)
-            f.seek(max(0, f.tell() - 262144))
-            lines = f.read().decode('utf-8', 'replace').splitlines()
-    except (OSError, TypeError):
-        return None
-    for line in reversed(lines):
-        if '"isApiErrorMessage":true' not in line:
-            continue
-        try:
-            e = json.loads(line)
-            c = e['message']['content']
-            text = c if isinstance(c, str) else ' '.join(x.get('text', '') for x in c)
-            at = datetime.fromisoformat(e['timestamp'].replace('Z', '+00:00'))
-        except (ValueError, KeyError, TypeError, AttributeError):
-            continue
-        if RESET.search(text) and datetime.now(timezone.utc) - at < timedelta(minutes=5):
-            return text, at
-    return None
-
-
-def claim(marker):
-    """Lock the marker for one reset time and return its fd; None if a live watcher holds it."""
-    while True:
-        fd = os.open(marker, os.O_CREAT | os.O_WRONLY, 0o600)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            os.close(fd)
-            return None
-        try:
-            if os.fstat(fd).st_ino == os.stat(marker).st_ino:
-                return fd
-        except FileNotFoundError:
-            pass
-        os.close(fd)  # the previous holder deleted the file after we opened it; try again
-
-
-def release(fd, marker):
-    try:
-        os.unlink(marker)  # while still locked, so a waiting claim() sees the file gone
-    except OSError:
-        pass
-    os.close(fd)
-
-
-def sleep_until(t):
-    while (left := (t - datetime.now(timezone.utc)).total_seconds()) > 0:
-        time.sleep(min(left, 60))  # re-check the wall clock so a clock jump cannot oversleep
-
-
 def read_settings():
     names = ('ntfy_topic', 'notify_email', 'ntfy_token')
-    return {n: os.environ.get(f'CLAUDE_PLUGIN_OPTION_{n.upper()}', '').strip() for n in names}
+    settings = {n: os.environ.get(f'CLAUDE_PLUGIN_OPTION_{n.upper()}', '').strip() for n in names}
+    settings['ntfy_topic'] = effective_topic(settings['ntfy_topic'], DIR / 'topic', TOPIC_PREFIX)
+    return settings
 
 
-def is_permanent(error):
-    """A bad URL or header, or a 4xx other than 429, fails the same way every time."""
-    if isinstance(error, urllib.error.HTTPError):
-        return 400 <= error.code < 500 and error.code != 429
-    return isinstance(error, (ValueError, http.client.InvalidURL))
+def reset_groups(caps: list[Cap]) -> list[list[Cap]]:
+    """Caps by reset time, those resetting within GROUP seconds of the previous one together."""
+    groups: list[list[Cap]] = []
+    for cap in sorted(caps, key=lambda c: c.reset):
+        if groups and (cap.reset - groups[-1][-1].reset).total_seconds() <= GROUP:
+            groups[-1].append(cap)
+        else:
+            groups.append([cap])
+    return groups
 
 
-def describe(error):
-    """Class (and HTTP status) only: an error message can quote the topic or the token."""
-    return f'HTTP {error.code}' if isinstance(error, urllib.error.HTTPError) else type(error).__name__
+def announcement(restored: list[Cap], pending: list[Cap]) -> str:
+    """Which caps have reset and which still hold; a spend cap only blocks the credit fallback, not the plan."""
+    names = describe_caps(restored)
+    if len(restored) == 1:
+        text = f'Your {names} has reset.'
+    else:
+        text = f'Your {names} have {"both" if len(restored) == 2 else "all"} reset.'
+    holding = [cap for cap in pending if cap.kind not in CREDIT_KINDS]
+    capped = [cap for cap in pending if cap.kind in CREDIT_KINDS]
+    if holding:
+        text += (
+            ' Still in force: ' + ', '.join(f'{cap.label} (until {format_reset(cap.reset)})' for cap in holding) + '.'
+        )
+    else:
+        text += ' You can continue.'
+    if capped:
+        text += f' Usage credits stay capped by your {capped[0].label} until {format_reset(capped[0].reset)}.'
+    return text
 
 
-def push(window, settings):
-    req = urllib.request.Request(
-        NTFY_URL + urllib.parse.quote(settings['ntfy_topic'], safe=''),
-        data=f'Your {window} limit has reset. You can continue.'.encode(),
-        headers={
-            'Title': 'Claude limit restored',
-            'Tags': 'white_check_mark',
-            'Email': settings['notify_email'],
-            'Authorization': f"Bearer {settings['ntfy_token']}",  # ntfy.sh refuses anonymous email
-        },
+def push(text, settings):
+    ntfy_push(
+        NTFY_URL,
+        settings['ntfy_topic'],
+        text,
+        log,
+        title='Claude limit restored',
+        tags='white_check_mark',
+        email=settings['notify_email'],
+        token=settings['ntfy_token'],
     )
-    for attempt in range(1, 4):
-        try:
-            urllib.request.urlopen(req, timeout=15).read()
-            log(f'pushed (attempt {attempt})')
-            return
-        except Exception as e:
-            log(f'push failed (attempt {attempt}): {describe(e)}')
-            if is_permanent(e):
-                break
-            time.sleep(30)
-    log('gave up pushing')
 
 
-def watch(payload):
-    settings = read_settings()
-    if missing := [n for n, v in settings.items() if not v]:  # fail now, not after sleeping until the reset
-        log(f"missing plugin options: {', '.join(missing)}")
-        return
-    hit = None
-    for _ in range(LOOKUP_TRIES):
-        hit = last_limit_error(payload.get('transcript_path'))
-        if hit:
-            break
-        time.sleep(1)
-    if not hit:
-        log(f"no limit message in transcript (error={payload.get('error')!r}, "
-            f"details={str(payload.get('error_details'))[:120]!r})")
-        return
-    text, at = hit
-    reset = parse_reset(text, at)
-    if not reset or reset - datetime.now(timezone.utc) > timedelta(days=8):
-        log(f'unusable reset time in: {text[:200]!r}')
-        return
-    m = WINDOW.search(text)
-    window = m.group(1) if m else 'usage'
-    marker = os.path.join(DIR, f'{int(reset.timestamp())}.lock')
+def announce(group: list[Cap], later: list[Cap], settings) -> None:
+    reset = group[-1].reset
+    marker = DIR / f'{int(group[0].reset.timestamp())}.lock'
     fd = claim(marker)
     if fd is None:
         log(f'already watching the {reset:%Y-%m-%d %H:%M}Z reset')
         return
     try:
-        log(f'{window} limit; will push at {reset + MARGIN:%Y-%m-%d %H:%M:%S}Z')
+        log(f'{describe_caps(group)}; will push at {reset + MARGIN:%Y-%m-%d %H:%M:%S}Z')
         sleep_until(reset + MARGIN)
-        push(window, settings)
+        push(announcement(group, [cap for cap in later if cap.reset > reset]), settings)
     finally:
         release(fd, marker)
 
 
+def watch(payload):
+    settings = read_settings()
+    if missing := [n for n, v in settings.items() if not v]:  # fail now, not after sleeping until the reset
+        log(f'missing plugin options: {", ".join(missing)}')
+        return
+    limit = lookup(payload.get('transcript_path'), LOOKUP_TRIES)
+    if not limit:
+        log(
+            f'no limit message in transcript (error={payload.get("error")!r}, '
+            f'details={str(payload.get("error_details"))[:120]!r})'
+        )
+        return
+    now = datetime.now(timezone.utc)
+    waitable = [cap for cap in limit.caps if cap.reset - now <= cap.max_wait]
+    if not waitable:
+        log(f'unusable reset time: {limit.caps[0].reset:%Y-%m-%d %H:%M}Z for the {limit.caps[0].label}')
+        return
+    for group in reset_groups(waitable):
+        announce(group, limit.caps, settings)
+
+
+def topic_text(rotate=False):
+    """What `/portavoce topic` says: the topic pushes go to and how to subscribe the phone to it."""
+    option = os.environ.get('CLAUDE_PLUGIN_OPTION_NTFY_TOPIC', '').strip()
+    if option:
+        note = 'The topic option is set, so that is the topic; clear the option to use a private one made here.'
+        return f'Portavoce pushes to {option}. {note} {subscribe_steps(option, "/portavoce test")}'
+    topic = stored_topic(DIR / 'topic', TOPIC_PREFIX, rotate=rotate)
+    made = 'Made a new private topic, so drop the old one in the app. ' if rotate else ''
+    return f'{made}Portavoce pushes to your private ntfy topic {topic}. {subscribe_steps(topic, "/portavoce test")}'
+
+
+def send_test(settings):
+    """Sends one push to the topic, without the email, and says whether it went through."""
+    sent = ntfy_push(
+        NTFY_URL,
+        settings['ntfy_topic'],
+        'Claude Portavoce test: if you can read this, the topic works.',
+        log,
+        title='Claude Portavoce test',
+        tags='bell',
+        token=settings['ntfy_token'],
+    )
+    return 'Sent: it should show up in the ntfy app now.' if sent else f'Not sent; {DIR / "log.txt"} says why.'
+
+
 def main():
-    os.makedirs(DIR, mode=0o700, exist_ok=True)
+    DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if sys.argv[1:2] == ['topic']:
+        print(topic_text(rotate=sys.argv[2:] == ['new']))
+        return
+    if sys.argv[1:] == ['test']:
+        print(send_test(read_settings()))
+        return
     if sys.argv[1:] == ['--watch']:
         try:
             watch(json.load(sys.stdin))
@@ -203,8 +167,13 @@ def main():
             log(traceback.format_exc())
         return
     raw = sys.stdin.buffer.read()
-    child = subprocess.Popen([sys.executable, os.path.abspath(__file__), '--watch'], stdin=subprocess.PIPE,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    child = subprocess.Popen(
+        [sys.executable, os.path.abspath(__file__), '--watch'],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
     child.stdin.write(raw)
     child.stdin.close()
 

@@ -1,5 +1,8 @@
 {
   "description": "Notify when a usage limit resets",
+  "modules": [
+    "./register.ts"
+  ],
   "hooks": {
     "StopFailure": [
       {
