@@ -1,7 +1,7 @@
 {
   "name": "credits-restored-notifier",
   "version": "0.2.1",
-  "description": "Sends a push and an email when a Claude Code usage limit resets.",
+  "description": "Sends a push and an email when a Claude Code usage limit resets. Token-free: no model calls.",
   "author": { "name": "Carlo Contaldi" },
   "license": "MIT",
   "icon": "./.claude-plugin/icon.png",
