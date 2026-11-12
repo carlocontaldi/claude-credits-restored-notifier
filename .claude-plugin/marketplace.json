@@ -1,6 +1,6 @@
 {
-  "name": "claude-credits-restored-notifier",
+  "name": "claude-portavoce",
   "owner": { "name": "Carlo Contaldi" },
   "metadata": { "description": "A token-free Claude Code hook that sends a push and an email when a usage limit resets." },
-  "plugins": [{ "name": "credits-restored-notifier", "source": "./" }]
+  "plugins": [{ "name": "portavoce", "source": "./" }]
 }
