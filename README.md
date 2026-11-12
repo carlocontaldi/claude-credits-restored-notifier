@@ -1,6 +1,13 @@
 # Claude Portavoce
 
-Claude Code stops when a session, weekly or org spend limit is hit. This plugin watches the clock for you: it sends a push, and an email through ntfy, a minute after the limit resets, with no terminal or Claude session left open.
+> **por·ta·vo·ce** · Italian /portaˈvotʃe/ (*por-ta-VOH-cheh*) · *noun*, masculine and feminine, plural unchanged
+>
+> 1. One who speaks on behalf of another person or a group; a spokesperson.
+> 2. A megaphone; on ships, a speaking tube that carries the voice from one room to the next.
+>
+> *From* portare, *to carry, and* voce, *voice.*
+
+Claude Code stops when a session, weekly or org spend limit is hit. Claude Portavoce speaks for it while it can't: it watches the clock for you and sends a push, and an email through ntfy, a minute after the limit resets, with no terminal or Claude session left open.
 
 **Token-free.** It makes no model calls: the waiting is done by a plain Python process, and the hook fires after Claude has already stopped and prints nothing, so it adds nothing to the conversation and costs none of your usage.
 
