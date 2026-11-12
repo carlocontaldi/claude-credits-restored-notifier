@@ -40,11 +40,13 @@ If `~/.claude/settings.json` already registers `limit_restore_notify.py` under `
 
 Claude Code asks for the notification email and the access token when you enable the plugin and hands them to the hook as environment variables. The token is kept in Claude Code's secure storage: the macOS Keychain, or a Secret Service keyring on Linux when one is available. Without one, typical on a headless server, it falls back to `~/.claude/.credentials.json`, a plaintext file readable only by you (behaviour of Claude Code 2.1.319).
 
-| Value | Meaning |
-|---|---|
-| ntfy topic | Optional. Empty: a private topic Portavoce makes, `claude-portavoce-<random>` (see below). Set a name to use your own. |
-| Notification email | Where ntfy sends the email. |
-| ntfy access token | Your ntfy access token. |
+| Value | Required | Meaning |
+|---|---|---|
+| ntfy topic | No | Empty: a private topic Portavoce makes, `claude-portavoce-<random>` (see below). Set a name to use your own. |
+| Notification email | Yes | Where ntfy sends the email. |
+| ntfy access token | Yes | Your ntfy access token. |
+
+The email and the token are both required: without either, the watcher logs `missing plugin options: ...` and sends nothing, so a push to the phone alone is not possible. [Claude Goon](https://github.com/carlocontaldi/claude-goon) makes both optional.
 
 Change a value later from a shell; options you leave out keep their values:
 
@@ -58,8 +60,8 @@ Versions before 0.2.0 read these values from files in `~/.claude/limit-watch/`, 
 
 ## Set up ntfy
 
-1. **Email.** ntfy.sh refuses emails from anonymous requests, so [sign up](https://ntfy.sh/app) (free), open Account, create an access token and enter it as the access token above. The free tier allows 5 emails a day, shared with [Claude Goon](https://github.com/carlocontaldi/claude-goon) if you use its email option. The email arrives whether or not a phone is subscribed.
-2. **Phone.** In a Claude Code session run `/portavoce topic`. The first time, Portavoce makes a private topic, `claude-portavoce-` and 22 random letters and digits, keeps it in `~/.claude/portavoce/topic` (readable only by you) and shows it. Install the ntfy app (Android: Google Play or F-Droid; iOS: App Store), tap **+**, enter that topic and keep the default server, `ntfy.sh`. On Android, opening `ntfy://ntfy.sh/<topic>` subscribes in one step.
+1. **Email and token (required).** ntfy.sh refuses emails from anonymous requests, so [sign up](https://ntfy.sh/app) (free), open Account, create an access token and enter it as the access token above. The free tier allows 5 emails a day, shared with [Claude Goon](https://github.com/carlocontaldi/claude-goon) if you use its email option. The email arrives whether or not a phone is subscribed.
+2. **Phone (optional).** In a Claude Code session run `/portavoce topic`. The first time, Portavoce makes a private topic, `claude-portavoce-` and 22 random letters and digits, keeps it in `~/.claude/portavoce/topic` (readable only by you) and shows it. Install the ntfy app (Android: Google Play or F-Droid; iOS: App Store), tap **+**, enter that topic and keep the default server, `ntfy.sh`. On Android, opening `ntfy://ntfy.sh/<topic>` subscribes in one step.
 3. **Try it.** `/portavoce test` sends one push to the topic, without an email, and says whether it went through.
 
 `/portavoce topic new` makes another topic if the first one leaks (subscribe to it and drop the old one). The commands run a local script and make no model call. The email's sender reads `ntfy.sh/<topic>`; that comes from ntfy and the topic name.
@@ -78,6 +80,7 @@ The zone in the limit message is the IANA zone of the machine running Claude Cod
 
 ```
 python3 -m unittest discover -s tests
+claude plugin test .
 ```
 
 ## License
