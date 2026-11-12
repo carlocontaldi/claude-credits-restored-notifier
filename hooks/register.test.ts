@@ -42,16 +42,16 @@ test('/portavoce with anything else says how to use it and runs nothing', { opti
   expect(runs).toEqual([])
 })
 
-test('an unset topic option sends the script no variable', { options: REQUIRED }, async ($, on) => {
+test('an unset topic option sends the script no topic variable, only the token', { options: REQUIRED }, async ($, on) => {
   const runs = world(on)
   await $.session.start({ cwd: '/', surface: 'vscode', isInteractive: true })
   await $.command.run(slash('topic'))
-  expect(runs[0]?.env).toEqual({})
+  expect(runs[0]?.env).toEqual({ CLAUDE_PLUGIN_OPTION_NTFY_TOKEN: 'tk_fake' })
 })
 
 test('a topic set in the options reaches the script', { options: { ...REQUIRED, ntfy_topic: ' my-topic ' } }, async ($, on) => {
   const runs = world(on)
   await $.session.start({ cwd: '/', surface: 'vscode', isInteractive: true })
   await $.command.run(slash('topic'))
-  expect(runs[0]?.env).toEqual({ CLAUDE_PLUGIN_OPTION_NTFY_TOPIC: 'my-topic' })
+  expect(runs[0]?.env).toEqual({ CLAUDE_PLUGIN_OPTION_NTFY_TOPIC: 'my-topic', CLAUDE_PLUGIN_OPTION_NTFY_TOKEN: 'tk_fake' })
 })
